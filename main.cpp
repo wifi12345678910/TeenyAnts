@@ -17,6 +17,9 @@ const tny_uword SNIFF_PHER_DIR = 0x9003; // sniff pheremone in direction (no rad
 const tny_uword DROP_PHER = 0x9005; //lay down a fresh pheremone signal
 const tny_uword MOVE = 0x9006; //move in cardinal and subcardinal direction
 const tny_uword SET_SNIFF_DIR =0x9007;//set sniff direction for long range
+const tny_uword SET_RG = 0x9008; //sets R and G
+const tny_uword SET_BA = 0x9009; //sets B and A
+
 
 typedef struct {
     teenyat *t;
@@ -35,6 +38,7 @@ typedef struct {
     short pher_level;
     int food;
     short ant_pres;
+    short nest;
 } tnycell;
 
 void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay);

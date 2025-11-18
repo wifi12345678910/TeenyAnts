@@ -149,7 +149,7 @@ void bus_write(tnyant *t, tny_uword addr, tny_word data, uint16_t *delay) {
     case DROP_PHER:
         tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level = data.bytes.byte0;
     case SET_SNIFF_DIR:
-        ant_list[num_ant].dir;
+        ant_list[num_ant].dir = data.u;
     default:
         break;
     }

@@ -161,7 +161,7 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
 }
 
 // Fixed function signature - only change needed
-void bus_write(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
+void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
     *delay = 1; // Added delay setting
     switch (addr)
     {
@@ -172,8 +172,8 @@ void bus_write(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
             short old_x = ant_list[num_ant].x; // Added for graphics
             short old_y = ant_list[num_ant].y; // Added for graphics
             
-            ant_list[num_ant].x = (ant_list[num_ant].x + (short) data->bytes.byte0-0x80+128)%128; // Fixed bounds
-            ant_list[num_ant].y = (ant_list[num_ant].y + (short) data->bytes.byte1-0x80+128)%128; // Fixed bounds
+            ant_list[num_ant].x = (ant_list[num_ant].x + (short) data.bytes.byte0-0x80+128)%128; // Fixed bounds
+            ant_list[num_ant].y = (ant_list[num_ant].y + (short) data.bytes.byte1-0x80+128)%128; // Fixed bounds
             tnymap[ant_list[num_ant].x][ant_list[num_ant].y].ant_pres++;
             
             // Added food collection for graphics
@@ -189,11 +189,11 @@ void bus_write(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
         }
         break;
     case DROP_PHER:
-        tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level = data->bytes.byte0;
-        cout << "Ant " << num_ant << " dropped pheromone level " << (int)data->bytes.byte0 << endl;
+        tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level = data.bytes.byte0;
+        cout << "Ant " << num_ant << " dropped pheromone level " << (int)data.bytes.byte0 << endl;
         break; // Added missing break
     case SET_SNIFF_DIR:
-        ant_list[num_ant].dir = data->u;
+        ant_list[num_ant].dir = data.u;
         break; // Added missing break
     default:
         break;

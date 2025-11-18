@@ -7,9 +7,9 @@
 
 using namespace std;
 
-const tny_uword SNIFF_NEAR_FOOD = 0x9000; //sniff nearest food source, 8 cell radius
-const tny_uword SNIFF_NEAR_PHER = 0x9001; //sniff nearest pheremone signal, 8 cell radius
-const tny_uword SNIFF_STRONG_PHER = 0x9002; //sniff strongest pheremone signal, 8 cell radius
+const tny_uword SNIFF_NEAR_FOOD = 0x9000; //sniff nearest food source, 2 cell radius
+const tny_uword SNIFF_NEAR_PHER = 0x9001; //sniff nearest pheremone signal, 6 cell radius
+const tny_uword SNIFF_STRONG_PHER = 0x9002; //sniff strongest pheremone signal, 6 cell radius
 const tny_uword SNIFF_PHER_DIR = 0x9003; // sniff pheremone in direction (no radius)
 const tny_uword DROP_PHER = 0x9005; //lay down a fresh pheremone signal
 const tny_uword MOVE = 0x9006; //move in cardinal and subcardinal direction
@@ -39,13 +39,99 @@ tnycell tnymap[128][128];
 vector<tnyant> ant_list;
 int num_ant = 0;
 
-void bus_read(tnyant *t, tny_uword addr, tny_word data, uint16_t *delay) {
+void bus_read(tnyant *t, tny_uword addr, tny_word *data, uint16_t *delay) {
     switch (addr)
     {
     case SNIFF_NEAR_FOOD:
-        /* code */
+        tny_word food;
+        food.bytes.byte0 =100;
+        food.bytes.byte1 =100;
+        for (int i = -4;i <5; i++) {
+            for (int j =-4;j<5;j++) {
+                if (tnymap[(ant_list[num_ant].x+i)%128][(ant_list[num_ant].y+j)%128].food >0 && (food.bytes.byte0-4)*(food.bytes.byte0-4)+(food.bytes.byte1-4)*(food.bytes.byte1-4) > i*1+j*j){
+                    food.bytes.byte0 = i+4;
+                    food.bytes.byte1 = j+4;    
+                }
+            }
+        }
+        data->bytes.byte0 = food.bytes.byte0;
+        data->bytes.byte1 = food.bytes.byte1;
         break;
-    
+    case SNIFF_NEAR_PHER:
+        tny_word food;
+        food.bytes.byte0 =100;
+        food.bytes.byte1 =100;
+        for (int i = -8;i <9; i++) {
+            for (int j =-8;j<9;j++) {
+                if (tnymap[(ant_list[num_ant].x+i)%128][(ant_list[num_ant].y+j)%128].pher_level >0 && (food.bytes.byte0-4)*(food.bytes.byte0-4)+(food.bytes.byte1-4)*(food.bytes.byte1-4) > i*1+j*j){
+                    food.bytes.byte0 = i+8;
+                    food.bytes.byte1 = j+8;    
+                }
+            }
+        }
+        data->bytes.byte0 = food.bytes.byte0;
+        data->bytes.byte1 = food.bytes.byte1;
+        break;
+    case SNIFF_STRONG_PHER:
+        tny_word food;
+        food.bytes.byte0 =100;
+        food.bytes.byte1 =100;
+        int pher_level =0;
+        for (int i = -8;i <9; i++) {
+            for (int j =-8;j<9;j++) {
+                if (tnymap[(ant_list[num_ant].x+i)%128][(ant_list[num_ant].y+j)%128].pher_level > pher_level){
+                    food.bytes.byte0 = i+8;
+                    food.bytes.byte1 = j+8;
+                    pher_level = tnymap[(ant_list[num_ant].x+i)%128][(ant_list[num_ant].y+j)%128].pher_level;
+                }
+            }
+        }
+        data->bytes.byte0 = food.bytes.byte0;
+        data->bytes.byte1 = food.bytes.byte1;
+        break;
+    case SNIFF_PHER_DIR:
+        tny_word pher;
+        pher.bytes.byte0 = 100;
+        pher.bytes.byte1 = 0;
+        switch (ant_list[num_ant].dir)
+        {
+        case 1:
+            for (int i=0;i<32;i++) {
+                if (tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level > pher.bytes.byte1){
+                    pher.bytes.byte1 = tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level;
+                    pher.bytes.byte0 = i;
+                }
+            }    
+            break;
+        case 2:
+            for (int i=0;i<32;i++) {
+                if (tnymap[ant_list[num_ant].x][(ant_list[num_ant].y+i)%128].pher_level > pher.bytes.byte1){
+                    pher.bytes.byte1 = tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level;
+                    pher.bytes.byte0 = i;
+                }
+            }    
+            break;
+        case 3:
+            for (int i=0;i<32;i++) {
+                if (tnymap[(ant_list[num_ant].x-i)%128][ant_list[num_ant].y].pher_level > pher.bytes.byte1){
+                    pher.bytes.byte1 = tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level;
+                    pher.bytes.byte0 = i;
+                }
+            }    
+            break;
+        case 4:
+            for (int i=0;i<32;i++) {
+                if (tnymap[ant_list[num_ant].x][(ant_list[num_ant].y-i)%128].pher_level > pher.bytes.byte1){
+                    pher.bytes.byte1 = tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level;
+                    pher.bytes.byte0 = i;
+                }
+            }    
+            break;
+        default:
+            break;
+        }
+        data->bytes.byte0 = pher.bytes.byte0;
+        data->bytes.byte1 = pher.bytes.byte1;
     default:
         break;
     }
@@ -62,6 +148,8 @@ void bus_write(tnyant *t, tny_uword addr, tny_word data, uint16_t *delay) {
         break;
     case DROP_PHER:
         tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level = data.bytes.byte0;
+    case SET_SNIFF_DIR:
+        ant_list[num_ant].dir;
     default:
         break;
     }
@@ -85,4 +173,5 @@ int main(int argc, char *argv[]) {
             cout << "err binary file path";
         }
     }
+
 }

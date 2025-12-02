@@ -312,7 +312,7 @@ int main(int argc, char *argv[]) {
             num_ant = i;
             if (ant_list[i].t) {
                 // EXECUTE MANY MORE CYCLES - ants will move much faster
-                for (int cycle = 0; cycle < 50; cycle++) {  // Increased from 15 to 50!
+                for (int cycle = 0; cycle < 500; cycle++) {  // Increased from 15 to 50!
                     tny_clock(ant_list[i].t);
                 }
             }

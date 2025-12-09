@@ -5,210 +5,429 @@
 #include <cstdio>
 #include <thread>
 #include <chrono>
+#include <ctime>
+
 #include "../teenyat.h"
 #include "graphics.h"
 
 using namespace std;
 
-const tny_uword SNIFF_NEAR_FOOD = 0x9000; //sniff nearest food source, 2 cell radius
-const tny_uword SNIFF_NEAR_PHER = 0x9001; //sniff nearest pheremone signal, 6 cell radius
-const tny_uword SNIFF_STRONG_PHER = 0x9002; //sniff strongest pheremone signal, 6 cell radius
-const tny_uword SNIFF_PHER_DIR = 0x9003; // sniff pheremone in direction (no radius)
-const tny_uword DROP_PHER = 0x9005; //lay down a fresh pheremone signal
-const tny_uword MOVE = 0x9006; //move in cardinal and subcardinal direction
-const tny_uword SET_SNIFF_DIR =0x9007;//set sniff direction for long range
-const tny_uword SET_RG = 0x9008; //sets R and G
-const tny_uword SET_BA = 0x9009; //sets B and A
+// -----------------------------------------------------------------------------
+// Ports (matching your TeenyAnt spec)
+// -----------------------------------------------------------------------------
 
+const tny_uword SNIFF_NEAR_FOOD   = 0x9000; // sniff nearest food, local area
+const tny_uword SNIFF_NEAR_PHER   = 0x9001; // sniff pheromone by direction
+const tny_uword SNIFF_STRONG_PHER = 0x9002; // strongest pheromone in radius
+const tny_uword SNIFF_PHER_DIR    = 0x9003; // sniff along facing direction
+const tny_uword DROP_PHER         = 0x9005; // drop pheromone at current cell
+
+// MOVE: direction code in low byte
+//   4 = NORTH (y-1)
+//   5 = EAST  (x+1)
+//   6 = SOUTH (y+1)
+//   7 = WEST  (x-1)
+const tny_uword MOVE             = 0x9006;
+
+const tny_uword SET_SNIFF_DIR    = 0x9007; // set facing direction (0..3)
+const tny_uword CHECK_CARRYING    = 0x9010; // check if carrying food
+const tny_uword SET_RG           = 0x9008; // reserved
+const tny_uword SET_BA           = 0x9009; // reserved / optional color tweak
+const tny_uword TRY_PICKUP_FOOD  = 0x9011; // Try to pickup food at current location
+
+// -----------------------------------------------------------------------------
+// World + ant state
+// -----------------------------------------------------------------------------
+
+typedef struct {
+    short pher_level;  // 0..255 pheromone (food trail)
+    int   food;        // food count
+    short ant_pres;    // number of ants in this cell
+    short nest;        // 1 if part of nest region
+} tnycell;
 
 typedef struct {
     teenyat *t;
-    short x;
-    short y;
-    short dir;
-    char r; //rgba values for color
-    char g;
-    char b;
-    char a;
-    bool carrying_food;  // Added for graphics
-    int state;          // Added for graphics
+    short    x;
+    short    y;
+    short    dir;        // facing direction (0..3) for SNIFF_PHER_DIR
+    unsigned char r, g, b, a;
+    bool     carrying_food;
+    int      state;
+    int      file_index; // which binary this ant came from
 } tnyant;
 
-typedef struct {
-    short pher_level;
-    int food;
-    short ant_pres;
-    short nest;
-} tnycell;
-
-void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay);
-void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay);
-
-tnycell tnymap[128][128];
-
+tnycell        tnymap[128][128];
 vector<tnyant> ant_list;
-int num_ant = 0;
+int            num_ant = 0;  // index of ant currently being clocked on the bus
 
-// Fixed function signature - only change needed
+// -----------------------------------------------------------------------------
+// Per-file color palette + HUD registration
+// -----------------------------------------------------------------------------
+
+static void color_for_file(int file_index,
+                           unsigned char &r,
+                           unsigned char &g,
+                           unsigned char &b)
+{
+    static const unsigned char palette[][3] = {
+        {255,   0,   0}, // red
+        {  0, 255,   0}, // green
+        {  0,   0, 255}, // blue
+        {255, 165,   0}, // orange
+        {255,   0, 255}, // magenta
+        {128,   0, 128}, // purple
+        {  0, 255, 255}, // cyan
+        {255, 255,   0}, // yellow
+    };
+    int idx = file_index % (int)(sizeof(palette) / sizeof(palette[0]));
+    r = palette[idx][0];
+    g = palette[idx][1];
+    b = palette[idx][2];
+}
+
+// -----------------------------------------------------------------------------
+// BUS READ: sensors
+// -----------------------------------------------------------------------------
+
 void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
-    *delay = 1; // Added delay setting
-    switch (addr)
-    {
+    (void)t;
+    *delay = 1;
+    data->u = 0;
+
+    switch (addr) {
+
+    // Nearest food in a 9x9 box around the ant.
+    // Returns offsets in bytes: (i+4, j+4), or 0x64/0x64 if none.
     case SNIFF_NEAR_FOOD:
-        {
-            tny_word food;
-            food.bytes.byte0 =100;
-            food.bytes.byte1 =100;
-            for (int i = -4;i <5; i++) {
-                for (int j =-4;j<5;j++) {
-                    if (tnymap[(ant_list[num_ant].x+i+128)%128][(ant_list[num_ant].y+j+128)%128].food >0 && (food.bytes.byte0-4)*(food.bytes.byte0-4)+(food.bytes.byte1-4)*(food.bytes.byte1-4) > i*i+j*j){
-                        food.bytes.byte0 = i+4;
-                        food.bytes.byte1 = j+4;    
-                    }
-                }
-            }
-            
-            data->bytes.byte0 = food.bytes.byte0;
-            data->bytes.byte1 = food.bytes.byte1;
-        }
-        break;
-    case SNIFF_NEAR_PHER:
-        {
-            tny_word pher; // Fixed variable name
-            pher.bytes.byte0 =100;
-            pher.bytes.byte1 =100;
-            for (int i = -8;i <9; i++) {
-                for (int j =-8;j<9;j++) {
-                    if (tnymap[(ant_list[num_ant].x+i+128)%128][(ant_list[num_ant].y+j+128)%128].pher_level >0 && (pher.bytes.byte0-8)*(pher.bytes.byte0-8)+(pher.bytes.byte1-8)*(pher.bytes.byte1-8) > i*i+j*j){
-                        pher.bytes.byte0 = i+8;
-                        pher.bytes.byte1 = j+8;    
-                    }
-                }
-            }
-            data->bytes.byte0 = pher.bytes.byte0;
-            data->bytes.byte1 = pher.bytes.byte1;
-        }
-        break;
-    case SNIFF_STRONG_PHER:
-        {
-            tny_word strong; // Fixed variable name
-            strong.bytes.byte0 =100;
-            strong.bytes.byte1 =100;
-            int pher_level =0;
-            for (int i = -8;i <9; i++) {
-                for (int j =-8;j<9;j++) {
-                    if (tnymap[(ant_list[num_ant].x+i+128)%128][(ant_list[num_ant].y+j+128)%128].pher_level > pher_level){
-                        strong.bytes.byte0 = i+8;
-                        strong.bytes.byte1 = j+8;
-                        pher_level = tnymap[(ant_list[num_ant].x+i+128)%128][(ant_list[num_ant].y+j+128)%128].pher_level;
-                    }
-                }
-            }
-            data->bytes.byte0 = strong.bytes.byte0;
-            data->bytes.byte1 = strong.bytes.byte1;
-        }
-        break;
-    case SNIFF_PHER_DIR:
-        {
-            tny_word pher_dir;
-            pher_dir.bytes.byte0 = 100;
-            pher_dir.bytes.byte1 = 0;
-            switch (ant_list[num_ant].dir)
-            {
-            case 1:
-                for (int i=0;i<32;i++) {
-                    if (tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level > pher_dir.bytes.byte1){
-                        pher_dir.bytes.byte1 = tnymap[(ant_list[num_ant].x+i)%128][ant_list[num_ant].y].pher_level;
-                        pher_dir.bytes.byte0 = i;
-                    }
-                }    
-                break;
-            case 2:
-                for (int i=0;i<32;i++) {
-                    if (tnymap[ant_list[num_ant].x][(ant_list[num_ant].y+i)%128].pher_level > pher_dir.bytes.byte1){
-                        pher_dir.bytes.byte1 = tnymap[ant_list[num_ant].x][(ant_list[num_ant].y+i)%128].pher_level; // Fixed array access
-                        pher_dir.bytes.byte0 = i;
-                    }
-                }    
-                break;
-            case 3:
-                for (int i=0;i<32;i++) {
-                    if (tnymap[(ant_list[num_ant].x-i+128)%128][ant_list[num_ant].y].pher_level > pher_dir.bytes.byte1){
-                        pher_dir.bytes.byte1 = tnymap[(ant_list[num_ant].x-i+128)%128][ant_list[num_ant].y].pher_level; // Fixed array access
-                        pher_dir.bytes.byte0 = i;
-                    }
-                }    
-                break;
-            case 4:
-                for (int i=0;i<32;i++) {
-                    if (tnymap[ant_list[num_ant].x][(ant_list[num_ant].y-i+128)%128].pher_level > pher_dir.bytes.byte1){
-                        pher_dir.bytes.byte1 = tnymap[ant_list[num_ant].x][(ant_list[num_ant].y-i+128)%128].pher_level; // Fixed array access
-                        pher_dir.bytes.byte0 = i;
-                    }
-                }    
-                break;
-            default:
-                break;
-            }
-            data->bytes.byte0 = pher_dir.bytes.byte0;
-            data->bytes.byte1 = pher_dir.bytes.byte1;
-        }
-        break; // Added missing break
-    default:
-        data->u = 0; // Added default case
-        break;
-    }
-}
-
-// Fixed function signature - only change needed
-void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
-    *delay = 1; // Added delay setting
-    switch (addr)
     {
-    case MOVE:
-        {
-            if(tnymap[ant_list[num_ant].x][ant_list[num_ant].y].ant_pres){tnymap[ant_list[num_ant].x][ant_list[num_ant].y].ant_pres--;}
-            
-            short old_x = ant_list[num_ant].x; // Added for graphics
-            short old_y = ant_list[num_ant].y; // Added for graphics
-            
-            ant_list[num_ant].x = (ant_list[num_ant].x + (short) data.bytes.byte0-0x80+128)%128; // Fixed bounds
-            ant_list[num_ant].y = (ant_list[num_ant].y + (short) data.bytes.byte1-0x80+128)%128; // Fixed bounds
-            tnymap[ant_list[num_ant].x][ant_list[num_ant].y].ant_pres++;
-            
-            // Added food collection for graphics
-            if (tnymap[ant_list[num_ant].x][ant_list[num_ant].y].food > 0) {
-                tnymap[ant_list[num_ant].x][ant_list[num_ant].y].food--;
-                ant_list[num_ant].carrying_food = true;
-                ant_list[num_ant].state = 2;
-                ant_list[num_ant].r = 255; ant_list[num_ant].g = 215; ant_list[num_ant].b = 0;
-                cout << "Ant " << num_ant << " found food!" << endl;
+        tny_word food;
+        food.bytes.byte0 = 0x64; // sentinel "no target"
+        food.bytes.byte1 = 0x64;
+
+        for (int i = -4; i <= 4; i++) {
+            for (int j = -4; j <= 4; j++) {
+                int nx = (ant_list[num_ant].x + i + 128) % 128;
+                int ny = (ant_list[num_ant].y + j + 128) % 128;
+
+                if (tnymap[nx][ny].food > 0) {
+                    // Compare squared distances to prefer closest
+                    int old_dx    = (int)food.bytes.byte0 - 4;
+                    int old_dy    = (int)food.bytes.byte1 - 4;
+                    int old_dist2 = old_dx * old_dx + old_dy * old_dy;
+                    int new_dist2 = i * i + j * j;
+
+                    if (food.bytes.byte0 == 0x64 || new_dist2 < old_dist2) {
+                        food.bytes.byte0 = (unsigned char)(i + 4);
+                        food.bytes.byte1 = (unsigned char)(j + 4);
+                    }
+                }
             }
-            
-            cout << "Ant " << num_ant << " moved from (" << old_x << "," << old_y << ") to (" << ant_list[num_ant].x << "," << ant_list[num_ant].y << ")" << endl;
         }
+
+        data->bytes.byte0 = food.bytes.byte0;
+        data->bytes.byte1 = food.bytes.byte1;
+    }
+    break;
+
+    // Directional pheromone sniff: sum pheromone in 4 cardinal directions
+    // and return dir in byte0 (0=N,1=E,2=S,3=W) or 0x64/0x64 if none.
+    case SNIFF_NEAR_PHER:
+    {
+        const unsigned char NO = 0x64;
+
+        int cx = ant_list[num_ant].x;
+        int cy = ant_list[num_ant].y;
+
+        int sumN = 0, sumE = 0, sumS = 0, sumW = 0;
+
+        // Skip radius 0/1 to avoid "self" pheromone bias
+        for (int dist = 2; dist <= 8; dist++) {
+            // north
+            int nx = cx;
+            int ny = (cy - dist + 128) % 128;
+            sumN += tnymap[nx][ny].pher_level;
+
+            // south
+            ny = (cy + dist + 128) % 128;
+            sumS += tnymap[nx][ny].pher_level;
+
+            // east
+            ny = cy;
+            nx = (cx + dist + 128) % 128;
+            sumE += tnymap[nx][ny].pher_level;
+
+            // west
+            nx = (cx - dist + 128) % 128;
+            sumW += tnymap[nx][ny].pher_level;
+        }
+
+        int best = 0;
+        int dir  = -1;
+
+        if (sumN > best) { best = sumN; dir = 0; }
+        if (sumE > best) { best = sumE; dir = 1; }
+        if (sumS > best) { best = sumS; dir = 2; }
+        if (sumW > best) { best = sumW; dir = 3; }
+
+        if (dir < 0 || best <= 0) {
+            data->bytes.byte0 = NO;
+            data->bytes.byte1 = NO;
+        } else {
+            data->bytes.byte0 = (unsigned char)dir;
+            data->bytes.byte1 = 0;
+        }
+    }
+    break;
+
+    // Strongest pheromone (within 17x17 square).
+    // Returns (offset, strength): byte0 = dx+8, byte1 = strength.
+    case SNIFF_STRONG_PHER:
+    {
+        tny_word strong;
+        strong.bytes.byte0 = 0;
+        strong.bytes.byte1 = 0;
+
+        int max_pher = 0;
+
+        for (int i = -8; i <= 8; i++) {
+            for (int j = -8; j <= 8; j++) {
+                int nx = (ant_list[num_ant].x + i + 128) % 128;
+                int ny = (ant_list[num_ant].y + j + 128) % 128;
+                int level = tnymap[nx][ny].pher_level;
+                if (level > max_pher) {
+                    max_pher = level;
+                    strong.bytes.byte0 = (unsigned char)(i + 8);
+                    strong.bytes.byte1 = (unsigned char)max_pher;
+                }
+            }
+        }
+
+        data->bytes.byte0 = strong.bytes.byte0;
+        data->bytes.byte1 = strong.bytes.byte1;
+    }
+    break;
+
+    // Sniff pheromone along the ant's facing direction (stored in dir).
+    // dir = 0..3 (0=N,1=E,2=S,3=W).
+    // Returns (distance, strength) or (0x64,0) if none.
+    case SNIFF_PHER_DIR:
+    {
+        tny_word out;
+        out.bytes.byte0 = 0x64;
+        out.bytes.byte1 = 0;
+
+        int cx = ant_list[num_ant].x;
+        int cy = ant_list[num_ant].y;
+
+        int best_strength = 0;
+        int best_dist     = 0;
+
+        int dcode = ant_list[num_ant].dir & 3;
+
+        int dx = 0, dy = 0;
+        if      (dcode == 0) { dx =  0; dy = -1; }
+        else if (dcode == 1) { dx =  1; dy =  0; }
+        else if (dcode == 2) { dx =  0; dy =  1; }
+        else                 { dx = -1; dy =  0; }
+
+        for (int dist = 1; dist <= 32; dist++) {
+            int nx = cx + dx * dist;
+            int ny = cy + dy * dist;
+            if (nx < 0 || nx >= 128 || ny < 0 || ny >= 128) break;
+
+            int level = tnymap[nx][ny].pher_level;
+            if (level > best_strength) {
+                best_strength = level;
+                best_dist     = dist;
+            }
+        }
+
+        if (best_strength > 0) {
+            out.bytes.byte0 = (unsigned char)best_dist;
+            out.bytes.byte1 = (unsigned char)best_strength;
+        }
+
+        data->bytes.byte0 = out.bytes.byte0;
+        data->bytes.byte1 = out.bytes.byte1;
+    }
+    break;
+
+    // Add this case in the bus_read switch statement:
+
+    case CHECK_CARRYING:
+        // Fix: Use the bytes structure to set the value
+        data->bytes.byte0 = ant_list[num_ant].carrying_food ? 1 : 0;
+        data->bytes.byte1 = 0;
         break;
-    case DROP_PHER:
-        tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level = data.bytes.byte0;
-        cout << "Ant " << num_ant << " dropped pheromone level " << (int)data.bytes.byte0 << endl;
-        break; // Added missing break
-    case SET_SNIFF_DIR:
-        ant_list[num_ant].dir = data.u;
-        break; // Added missing break
+
     default:
         break;
     }
 }
 
-// Added graphics functions
-void update_graphics_state() {
-    // Sync food from graphics to simulation
-    for (int x = 0; x < 128; x++) {
-        for (int y = 0; y < 128; y++) {
-            tnymap[x][y].food = 0;
+// -----------------------------------------------------------------------------
+// BUS WRITE: actions (MOVE, DROP_PHER, etc.)
+// -----------------------------------------------------------------------------
+
+void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
+    (void)t;
+    *delay = 1;
+
+    switch (addr) {
+
+    // MOVE with direction code in low byte:
+    // 4=N, 5=E, 6=S, 7=W
+    case MOVE:
+    {
+        int cx = ant_list[num_ant].x;
+        int cy = ant_list[num_ant].y;
+
+        if (tnymap[cx][cy].ant_pres > 0)
+            tnymap[cx][cy].ant_pres--;
+
+        unsigned char cmd = data.bytes.byte0;
+        int nx = cx;
+        int ny = cy;
+
+        switch (cmd) {
+        case 4: ny = cy - 1; ant_list[num_ant].dir = 0; break; // N
+        case 5: nx = cx + 1; ant_list[num_ant].dir = 1; break; // E
+        case 6: ny = cy + 1; ant_list[num_ant].dir = 2; break; // S
+        case 7: nx = cx - 1; ant_list[num_ant].dir = 3; break; // W
+        default:
+            // invalid move command, ignore
+            nx = cx;
+            ny = cy;
+            break;
+        }
+
+        // Clamp to 0..127
+        if (nx < 0)   nx = 0;
+        if (nx > 127) nx = 127;
+        if (ny < 0)   ny = 0;
+        if (ny > 127) ny = 127;
+
+        ant_list[num_ant].x = (short)nx;
+        ant_list[num_ant].y = (short)ny;
+        tnymap[nx][ny].ant_pres++;
+
+        // SINGLE food collection check
+        if (tnymap[nx][ny].food > 0) {
+            tnymap[nx][ny].food--;
+            ant_list[num_ant].carrying_food = true;
+            ant_list[num_ant].state = 2;
+            ant_list[num_ant].r = 255; ant_list[num_ant].g = 215; ant_list[num_ant].b = 0;
+
+            // Clear the food cell on graphics
+            int gx = (nx * 50) / 128;
+            int gy = (ny * 50) / 128;
+            if (gx >= 0 && gx < 50 && gy >= 0 && gy < 50)
+                update_world_cell(gx, gy, 0);
+            
+            // Clear pheromone when food is picked up
+            int clear_radius = 12;
+            for (int dx = -clear_radius; dx <= clear_radius; dx++) {
+                for (int dy = -clear_radius; dy <= clear_radius; dy++) {
+                    int clear_x = (nx + dx + 128) % 128;
+                    int clear_y = (ny + dy + 128) % 128;
+                    tnymap[clear_x][clear_y].pher_level = 0;
+                }
+            }
+            
+            cout << "Ant " << num_ant << " found food and cleared pheromone area!" << endl;
+        }
+
+        // Drop food in nest
+        if (ant_list[num_ant].carrying_food) {
+            int gx = (nx * 50) / 128;
+            int gy = (ny * 50) / 128;
+            if (gx >= 0 && gx < 50 && gy >= 0 && gy < 50 &&
+                get_world_cell(gx, gy) == 2)
+            {
+                ant_list[num_ant].carrying_food = false;
+                ant_list[num_ant].state = 0;
+                
+                // RESET ANT COLOR based on program type
+                if (num_ant == 0) {
+                    // Simple ant - red
+                    ant_list[num_ant].r = 255;
+                    ant_list[num_ant].g = 0;
+                    ant_list[num_ant].b = 0;
+                } else if (num_ant == 1) {
+                    // Searcher ant - green  
+                    ant_list[num_ant].r = 0;
+                    ant_list[num_ant].g = 255;
+                    ant_list[num_ant].b = 0;
+                } else {
+                    // Carrier ant - blue
+                    ant_list[num_ant].r = 0;
+                    ant_list[num_ant].g = 0;
+                    ant_list[num_ant].b = 255;
+                }
+                
+                add_nest_food(1);
+                cout << "Ant " << num_ant << " delivered food to nest and reset color!" << endl;
+            }
         }
     }
-    
+    break;
+
+    case DROP_PHER:
+        // Pheromone only exists in sim grid; graphics mirror it
+        tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level =
+            data.bytes.byte0;
+        break;
+
+    case SET_SNIFF_DIR:
+        // Let user code explicitly set dir (0..3)
+        ant_list[num_ant].dir = (short)(data.u & 3);
+        break;
+
+    case CHECK_CARRYING:
+        // New port: check if the ant is carrying food
+        // Returns 1 if carrying food, 0 if not
+        data.bytes.byte0 = ant_list[num_ant].carrying_food ? 1 : 0;
+        data.bytes.byte1 = 0;
+        break;
+
+    case SET_RG:
+        // optional; keep no-op for now
+        *delay = 1;
+        break;
+
+    case SET_BA:
+        // optional; allow user to tweak B/A if you want
+        ant_list[num_ant].b = data.bytes.byte0;
+        ant_list[num_ant].a = data.bytes.byte1;
+        break;
+
+    case TRY_PICKUP_FOOD:
+        // Attempt to pickup food at the current location
+        if (tnymap[ant_list[num_ant].x][ant_list[num_ant].y].food > 0) {
+            tnymap[ant_list[num_ant].x][ant_list[num_ant].y].food--;
+            ant_list[num_ant].carrying_food = true;
+            ant_list[num_ant].state = 2;
+            ant_list[num_ant].r = 255; ant_list[num_ant].g = 215; ant_list[num_ant].b = 0;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Mapping between 50×50 graphics world and 128×128 sim world
+// -----------------------------------------------------------------------------
+
+static void map_food_to_sim() {
+    // Reset sim food
+    for (int x = 0; x < 128; x++)
+        for (int y = 0; y < 128; y++)
+            tnymap[x][y].food = 0;
+
+    // For each 50×50 graphics cell with food, paint a small 3×3 patch in 128×128
     for (int gx = 0; gx < 50; gx++) {
         for (int gy = 0; gy < 50; gy++) {
             if (get_world_cell(gx, gy) == 1) {
@@ -216,131 +435,278 @@ void update_graphics_state() {
                 int sim_y = (gy * 128) / 50;
                 for (int dx = 0; dx < 3; dx++) {
                     for (int dy = 0; dy < 3; dy++) {
-                        int sx = (sim_x + dx) % 128;
-                        int sy = (sim_y + dy) % 128;
-                        tnymap[sx][sy].food = 1;
+                        int sx = sim_x + dx;
+                        int sy = sim_y + dy;
+                        if (sx >= 0 && sx < 128 && sy >= 0 && sy < 128)
+                            tnymap[sx][sy].food = 1;
                     }
                 }
             }
         }
     }
-    
-    for (int i = 0; i < ant_list.size(); i++) {
-        add_ant(i, (ant_list[i].x * 50) / 128, (ant_list[i].y * 50) / 128, ant_list[i].carrying_food, ant_list[i].state);
+}
+
+static void map_ants_to_graphics() {
+    for (int i = 0; i < (int)ant_list.size(); i++) {
+        add_ant(i,
+                ant_list[i].x,        // sim coords 0..127
+                ant_list[i].y,
+                ant_list[i].carrying_food ? 1 : 0,
+                ant_list[i].state,
+                ant_list[i].r,
+                ant_list[i].g,
+                ant_list[i].b);
     }
-    
-    for (int x = 0; x < 50; x++) {
-        for (int y = 0; y < 50; y++) {
-            int map_x = (x * 128) / 50;
-            int map_y = (y * 128) / 50;
-            if (map_x < 128 && map_y < 128) {
-                update_pheromone(x, y, tnymap[map_x][map_y].pher_level, 0);
-            }
+}
+
+static void map_pheromones_to_graphics() {
+    // FIRST: Clear all pheromone in graphics
+    for (int gx = 0; gx < 50; gx++) {
+        for (int gy = 0; gy < 50; gy++) {
+            update_pheromone(gx, gy, 0, 0); // Clear everything first
         }
     }
     
-    render_world();
+    // THEN: Add pheromone where it exists in sim
+    for (int sx = 0; sx < 128; sx++) {
+        for (int sy = 0; sy < 128; sy++) {
+            int level = tnymap[sx][sy].pher_level;
+            if (level <= 0) continue;
+
+            int gx = (sx * 50) / 128;
+            int gy = (sy * 50) / 128;
+            if (gx >= 0 && gx < 50 && gy >= 0 && gy < 50)
+                update_pheromone(gx, gy, level, 0);
+        }
+    }
 }
 
-void decay_pheromones() {
+static void decay_pheromones() {
+    // Simple decay: subtract 1 when > 0
     for (int x = 0; x < 128; x++) {
         for (int y = 0; y < 128; y++) {
             if (tnymap[x][y].pher_level > 0) {
                 tnymap[x][y].pher_level--;
+                if (tnymap[x][y].pher_level < 0)
+                    tnymap[x][y].pher_level = 0;
             }
         }
     }
 }
 
+void clear_dead_trails() {
+    // Clear pheromone in areas where there's no food nearby
+    for (int x = 0; x < 128; x++) {
+        for (int y = 0; y < 128; y++) {
+            if (tnymap[x][y].pher_level > 50) {  // Only check strong pheromone areas
+                // Check if there's food in a 6-cell radius
+                bool food_nearby = false;
+                for (int dx = -6; dx <= 6 && !food_nearby; dx++) {
+                    for (int dy = -6; dy <= 6 && !food_nearby; dy++) {
+                        int check_x = (x + dx + 128) % 128;
+                        int check_y = (y + dy + 128) % 128;
+                        if (tnymap[check_x][check_y].food > 0) {
+                            food_nearby = true;
+                        }
+                    }
+                }
+                
+                // If no food nearby, reduce pheromone faster
+                if (!food_nearby) {
+                    tnymap[x][y].pher_level = tnymap[x][y].pher_level / 2;  // Cut in half
+                }
+            }
+        }
+    }
+}
+
+// Limit food to 5 piles max and spawn new ones randomly
+static void maybe_spawn_food_dynamic() {
+    const int MAX_FOOD = 5;
+
+    int current_food = 0;
+    for (int gx = 0; gx < 50; gx++)
+        for (int gy = 0; gy < 50; gy++)
+            if (get_world_cell(gx, gy) == 1)
+                current_food++;
+
+    if (current_food >= MAX_FOOD) return;
+
+    // ~1/120 chance per frame
+    if (rand() % 120 != 0) return;
+
+    for (int tries = 0; tries < 50; tries++) {
+        int gx = rand() % 50;
+        int gy = rand() % 50;
+        if (get_world_cell(gx, gy) == 0) {
+            update_world_cell(gx, gy, 1);
+            cout << "🍎 New food spawned at (" << gx << "," << gy << ")\n";
+            break;
+        }
+    }
+}
+
+static void update_graphics_state() {
+    map_food_to_sim();
+    map_ants_to_graphics();
+    map_pheromones_to_graphics();
+    render_world();
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+
 int main(int argc, char *argv[]) {
-    // Added graphics initialization
+    srand((unsigned int)time(NULL));
+
     init_graphics();
     if (!graphics_active()) {
-        cout << "Failed to init graphics" << endl;
+        cout << "Graphics init failed.\n";
         return 1;
     }
-    
-    // Initialize world map
+
     memset(tnymap, 0, sizeof(tnymap));
-    
-    int ant_num =0;
-    if (argc%2-1) {
-        std::cout << "Please provide a binary file and number for each file" << std::endl;
-        return 1;
-    }
-    for (int i =2;i<argc; i+=2){
-        FILE *bin_file = fopen(argv[i-1], "rb");
-        if(bin_file !=NULL){
-            for(int j = 0;j<atoi(argv[i]); j++){ // Fixed: use atoi instead of cast
-                ant_list.push_back(tnyant());
-                
-                // Added initialization
-                ant_list[ant_num].t = (teenyat*)malloc(sizeof(teenyat));
-                rewind(bin_file);
-                
-                if (tny_init_from_file(ant_list[ant_num].t, bin_file, bus_read, bus_write)) {
-                    ant_list[ant_num].x = 64 + (rand() % 20) - 10;
-                    ant_list[ant_num].y = 64 + (rand() % 20) - 10;
-                    ant_list[ant_num].dir = 1;
-                    ant_list[ant_num].r = 255; ant_list[ant_num].g = 68; ant_list[ant_num].b = 68; ant_list[ant_num].a = 255;
-                    ant_list[ant_num].carrying_food = false;
-                    ant_list[ant_num].state = 0;
-                    cout << "Ant " << ant_num << " initialized at (" << ant_list[ant_num].x << "," << ant_list[ant_num].y << ")" << endl;
-                    ant_num++;
-                } else {
-                    cout << "Failed to initialize ant CPU" << endl;
-                    free(ant_list[ant_num].t);
-                    ant_list.pop_back();
-                }
-            }
-           fclose(bin_file);
-        } else {
-            cout << "err binary file path: " << argv[i-1] << endl;
+
+    // Mark a central nest region in sim (approx 3×3 nest in graphics)
+    for (int x = 56; x <= 72; x++) {
+        for (int y = 56; y <= 72; y++) {
+            if (x >= 0 && x < 128 && y >= 0 && y < 128)
+                tnymap[x][y].nest = 1;
         }
     }
-    
-    cout << "Created " << ant_list.size() << " ants" << endl;
-    
-    // MUCH FASTER simulation loop for smooth movement
-    int frame = 0;
+
+    int ant_num    = 0;
+    int file_index = 0;
+
+    if (argc % 2 - 1) {
+        cout << "Usage: " << argv[0]
+             << " bin1 count1 [bin2 count2 ...]\n";
+    }
+
+    // argv pattern: teenyants.exe bin1 count1 bin2 count2 ...
+    for (int i = 2; i < argc; i += 2, file_index++) {
+        FILE *bin_file = fopen(argv[i - 1], "rb");
+        if (!bin_file) {
+            cout << "Error opening binary file: " << argv[i - 1] << endl;
+            continue;
+        }
+
+        int count = atoi(argv[i]);
+
+        unsigned char base_r, base_g, base_b;
+        color_for_file(file_index, base_r, base_g, base_b);
+        register_program_info(file_index, argv[i - 1],
+                              base_r, base_g, base_b);
+
+        cout << "Loading " << count << " ants from " << argv[i - 1]
+             << " (file index " << file_index << ")\n";
+
+        for (int j = 0; j < count; j++) {
+            ant_list.push_back(tnyant());
+            ant_list[ant_num].t = (teenyat*)malloc(sizeof(teenyat));
+            rewind(bin_file);
+
+            if (tny_init_from_file(ant_list[ant_num].t,
+                                   bin_file,
+                                   bus_read,
+                                   bus_write))
+            {
+                ant_list[ant_num].x   = 64 + (rand() % 20) - 10;
+                ant_list[ant_num].y   = 64 + (rand() % 20) - 10;
+                ant_list[ant_num].dir = 1; // facing east by default
+                ant_list[ant_num].a   = 255;
+                ant_list[ant_num].carrying_food = false;
+                ant_list[ant_num].state         = 0;
+                ant_list[ant_num].file_index    = file_index;
+
+                ant_list[ant_num].r = base_r;
+                ant_list[ant_num].g = base_g;
+                ant_list[ant_num].b = base_b;
+
+                cout << "Ant " << ant_num << " from file " << file_index
+                     << " at (" << ant_list[ant_num].x << ","
+                     << ant_list[ant_num].y << ")\n";
+                ant_num++;
+            } else {
+                cout << "Failed to initialize ant CPU for "
+                     << argv[i - 1] << endl;
+                free(ant_list[ant_num].t);
+                ant_list.pop_back();
+            }
+        }
+
+        fclose(bin_file);
+    }
+
+    cout << "Total ants: " << ant_list.size() << endl;
+
+    int frame       = 0;
     int decay_timer = 0;
-    
+
     while (graphics_active() && frame < 50000) {
         frame++;
-        
-        for (int i = 0; i < ant_list.size(); i++) {
+
+        // Run each ant's teenyAT CPU
+        for (int i = 0; i < (int)ant_list.size(); i++) {
             num_ant = i;
             if (ant_list[i].t) {
-                // EXECUTE MANY MORE CYCLES - ants will move much faster
-                for (int cycle = 0; cycle < 500; cycle++) {  // Increased from 15 to 50!
+                // Plenty of cycles per frame for smooth movement
+                for (int cycle = 0; cycle < 500; cycle++)
                     tny_clock(ant_list[i].t);
-                }
             }
         }
+
+        // Pheromone decay every N frames to achieve ~700ms lifetime
+        // At 30ms per frame: 700ms ÷ 30ms = ~23 frames
+        //if (++decay_timer >= 23) {
+        //    decay_pheromones();
+        //    decay_timer = 0;
+        //}
+
+        // Faster pheromone decay for shorter trails
+        // At 30ms per frame: 400ms ÷ 30ms = ~13 frames
+        //if (++decay_timer >= 13) {
+        //    decay_pheromones();
+        //    decay_timer = 0;
+        //}
         
-        // Slower pheromone decay for visible trails
-        if (++decay_timer >= 300) {  // Increased from 100 to 300 - trails last 3x longer
+        // MUCH faster pheromone decay - trails disappear quickly!
+        // At 30ms per frame: 300ms ÷ 30ms = ~10 frames
+        if (++decay_timer >= 10) {
             decay_pheromones();
             decay_timer = 0;
         }
         
+        // Slower pheromone decay so you can see trails
+        // At 30ms per frame: 1000ms ÷ 30ms = ~33 frames
+        //if (++decay_timer >= 33) {
+        //    decay_pheromones();
+        //    decay_timer = 0;
+        //}
+        
+        // Clear dead trails every 50 frames (less frequent)
+        if (frame % 50 == 0) {
+            clear_dead_trails();
+        }
+
+        maybe_spawn_food_dynamic();
         update_graphics_state();
-        
-        if (frame % 500 == 0) {  // Less frequent status updates
-            cout << "Frame " << frame << " - " << ant_list.size() << " ants active" << endl;
+
+        if (frame % 500 == 0) {
+            cout << "Frame " << frame
+                 << " | ants: " << ant_list.size()
+                 << " | nest food: " << get_nest_food() << endl;
         }
-        
-        // FASTER frame rate for smooth animation
-        this_thread::sleep_for(chrono::milliseconds(30)); // Changed from 60ms to 30ms = 33 FPS
+
+        this_thread::sleep_for(chrono::milliseconds(30));
     }
-    
+
     // Cleanup
-    for (auto& ant : ant_list) {
-        if (ant.t) {
-            free(ant.t);
-        }
+    for (auto &ant : ant_list) {
+        if (ant.t) free(ant.t);
     }
-    
+
     cleanup_graphics();
     return 0;
 }

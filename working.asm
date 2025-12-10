@@ -23,7 +23,7 @@
 SET rA, rZ          ; Clear register A (general purpose)
 SET rB, rZ          ; Clear register B (food sensor data)
 SET rC, rZ          ; Clear register C (movement direction)
-SET rD, 0           ; Step counter
+SET rD, rZ           ; Step counter
 SET rE, 10          ; Pheromone strength
 
 !main_loop
@@ -46,7 +46,7 @@ SET rE, 10          ; Pheromone strength
     LOD rB, [SNIFF_NEAR_PHER]
     
     ; Check if pheromone trail found
-    SET rA, 0xFF  
+    SET rA, rZ  
     CMP rB, rA
     JE !random_explore  ; If rB == 0xFF, no pheromones nearby
     
@@ -65,10 +65,9 @@ SET rE, 10          ; Pheromone strength
 
 !random_explore
     ; Generate pseudo-random direction (0-7)
-    ADD rD, 1           ; Increment step counter
-    SET rA, 7
+    INC rD          ; Increment step counter
     SET rC, rD          ; Copy step counter
-    AND rC, rA          ; rC = rD & 7 (gives 0-7)
+    MOD rC, rZ + 7          ; rC = rD & 7 (gives 0-7)
     JMP !execute_movement
 
 !execute_movement

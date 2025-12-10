@@ -290,6 +290,7 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
         int x = ((int) data.bytes.byte1) - 0x80;
+        cout << x<<"\n";
         int y = ((int) data.bytes.byte0) - 0x80;
         if (x*x >1 || y*y >1){
             x = 0; y=0; //legal move enforcement

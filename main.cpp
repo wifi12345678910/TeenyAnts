@@ -281,7 +281,8 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
     switch (addr) {
 
     // MOVE
-    // 
+    // byte 0 is y centered at 0x80
+    // byte 1 is x centered at 0x80 can use basic directions to move one, but can move further if desire
     case MOVE:
     {
         int cx = ant_list[num_ant].x;
@@ -290,11 +291,8 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
         int x = ((int) data.bytes.byte1) - 0x80;
-        cout << x<<"\n";
         int y = ((int) data.bytes.byte0) - 0x80;
-        if (x*x >1 || y*y >1){
-            x = 0; y=0; //legal move enforcement
-        }
+        
 
         int nx = cx + x;
         int ny = cy + y;

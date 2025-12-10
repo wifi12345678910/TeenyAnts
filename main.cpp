@@ -34,6 +34,7 @@ const tny_uword CHECK_CARRYING    = 0x9010; // check if carrying food
 const tny_uword SET_RG           = 0x9008; // reserved
 const tny_uword SET_BA           = 0x9009; // reserved / optional color tweak
 const tny_uword TRY_PICKUP_FOOD  = 0x9011; // Try to pickup food at current location
+const tny_uword CHECK_NEST       = 0x900A;
 
 // -----------------------------------------------------------------------------
 // World + ant state
@@ -264,7 +265,13 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
         data->bytes.byte0 = ant_list[num_ant].carrying_food ? 1 : 0;
         data->bytes.byte1 = 0;
         break;
-
+    case CHECK_NEST:
+        if (tnymap[ant_list[num_ant].x][ant_list[num_ant].y].nest >0){
+            data->u = 0x0000;
+        } else {
+            data->u = 0xFFFF;
+        }
+        break;
     default:
         break;
     }

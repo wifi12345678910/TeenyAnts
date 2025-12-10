@@ -61,6 +61,10 @@ tnycell        tnymap[128][128];
 vector<tnyant> ant_list;
 int            num_ant = 0;  // index of ant currently being clocked on the bus
 
+void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay);
+void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay); // func defs
+
+
 // -----------------------------------------------------------------------------
 // Per-file color palette + HUD registration
 // -----------------------------------------------------------------------------
@@ -276,31 +280,23 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
     switch (addr) {
 
-    // MOVE with direction code in low byte:
-    // 4=N, 5=E, 6=S, 7=W
+    // MOVE
+    // 
     case MOVE:
     {
         int cx = ant_list[num_ant].x;
         int cy = ant_list[num_ant].y;
 
-        if (tnymap[cx][cy].ant_pres > 0)
-            tnymap[cx][cy].ant_pres--;
+        if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
-        unsigned char cmd = data.bytes.byte0;
-        int nx = cx;
-        int ny = cy;
-
-        switch (cmd) {
-        case 4: ny = cy - 1; ant_list[num_ant].dir = 0; break; // N
-        case 5: nx = cx + 1; ant_list[num_ant].dir = 1; break; // E
-        case 6: ny = cy + 1; ant_list[num_ant].dir = 2; break; // S
-        case 7: nx = cx - 1; ant_list[num_ant].dir = 3; break; // W
-        default:
-            // invalid move command, ignore
-            nx = cx;
-            ny = cy;
-            break;
+        int x = ((int) data.bytes.byte1) - 0x80;
+        int y = ((int) data.bytes.byte0) - 0x80;
+        if (x*x >1 || y*y >1){
+            x = 0; y=0; //legal move enforcement
         }
+
+        int nx = cx + x;
+        int ny = cy + y;
 
         // Clamp to 0..127
         if (nx < 0)   nx = 0;
@@ -311,6 +307,13 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         ant_list[num_ant].x = (short)nx;
         ant_list[num_ant].y = (short)ny;
         tnymap[nx][ny].ant_pres++;
+        short dir_m;
+        if (y<0 && x>=0) {dir_m = 0;}
+        else if (x>0 && y>=0){dir_m = 1;}
+        else if (y>0 && x<=0){dir_m = 2;}
+        else {dir_m = 3;}
+        
+        ant_list[num_ant].dir = dir_m;
 
         // SINGLE food collection check
         if (tnymap[nx][ny].food > 0) {
@@ -365,11 +368,20 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
             data.bytes.byte0;
         break;
 
-    case SET_SNIFF_DIR:
+    case SET_SNIFF_DIR:{
         // Let user code explicitly set dir (0..3)
-        ant_list[num_ant].dir = (short)(data.u & 3);
+        // auto convert from regular dirs
+        int snx = ((int)data.bytes.byte1) - 0x80;
+        int sny = ((int)data.bytes.byte0) - 0x80;
+        short dir_sn;
+        if (sny<0 && snx>=0) {dir_sn =0;}
+        if (snx>0 && sny>=0){dir_sn =1;}
+        if (sny>0 && snx<=0){dir_sn = 2;}
+        if (snx<0 && sny<=0) {dir_sn = 3;}
+        
+        ant_list[num_ant].dir = dir_sn;
         break;
-
+    }
     case CHECK_CARRYING:
         // New port: check if the ant is carrying food
         // Returns 1 if carrying food, 0 if not
@@ -632,7 +644,6 @@ int main(int argc, char *argv[]) {
 
     while (graphics_active() && frame < 50000) {
         frame++;
-
         // Run each ant's teenyAT CPU
         for (int i = 0; i < (int)ant_list.size(); i++) {
             num_ant = i;

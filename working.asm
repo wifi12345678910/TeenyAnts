@@ -4,11 +4,11 @@
 .const DROP_PHER       0x9005
 .const MOVE            0x9006
 .const RAND            0x8010
-
+.const MOVE_EAST 0x8180
 .const NO_FOOD         0x6464
 
 !main
-    set rA, 5          ; direction = east
+    set rA, MOVE_EAST          ; direction = east
     set rB, 10         ; steps = 10
     jmp !loop
 
@@ -45,7 +45,7 @@
     str [DROP_PHER], rE
 
     ; Move around food to mark it
-    set rA, 5          ; Move east
+    set rA, MOVE_EAST          ; Move east
     set rB, 2
     jmp !delay
 

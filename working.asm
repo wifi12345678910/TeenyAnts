@@ -4,11 +4,14 @@
 .const DROP_PHER       0x9005
 .const MOVE            0x9006
 .const RAND            0x8010
-.const MOVE_EAST 0x8180
+.const MOVE_E 0x8180
+.const MOVE_W 0x7980
+.const MOVE_N 0x8079
+.const MOVE_S 0x8081
 .const NO_FOOD         0x6464
 
 !main
-    set rA, MOVE_EAST          ; direction = east
+    set rA, MOVE_E          ; direction = east
     set rB, 10         ; steps = 10
     jmp !loop
 
@@ -34,8 +37,23 @@
     ; Pick new random direction for long scouting run
     lod rC, [RAND]
     mod rC, 4
-    add rC, 4
-    set rA, rC
+    CMP rC, 2
+    JL !less2
+    CMP rC, 3
+    JE !setS
+    SET rA, MOVE_N
+    jmp !scout
+!setS
+    SET rA, MOVE_S
+    jmp !scout
+!less2        
+    CMP rC, 1
+    JE !setW
+    set rA, MOVE_E
+    jmp !scout
+!setW
+    set rA, MOVE_W
+!scout
     set rB, 15         ; Long scouting runs
     jmp !delay
 
@@ -45,7 +63,7 @@
     str [DROP_PHER], rE
 
     ; Move around food to mark it
-    set rA, MOVE_EAST          ; Move east
+    set rA, MOVE_E         ; Move east
     set rB, 2
     jmp !delay
 

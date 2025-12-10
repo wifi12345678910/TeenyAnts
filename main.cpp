@@ -61,6 +61,10 @@ tnycell        tnymap[128][128];
 vector<tnyant> ant_list;
 int            num_ant = 0;  // index of ant currently being clocked on the bus
 
+void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay);
+void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay); // func defs
+
+
 // -----------------------------------------------------------------------------
 // Per-file color palette + HUD registration
 // -----------------------------------------------------------------------------
@@ -276,31 +280,19 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
     switch (addr) {
 
-    // MOVE with direction code in low byte:
-    // 4=N, 5=E, 6=S, 7=W
+    // MOVE
+    // 
     case MOVE:
     {
         int cx = ant_list[num_ant].x;
         int cy = ant_list[num_ant].y;
 
-        if (tnymap[cx][cy].ant_pres > 0)
-            tnymap[cx][cy].ant_pres--;
+        if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
-        unsigned char cmd = data.bytes.byte0;
-        int nx = cx;
-        int ny = cy;
-
-        switch (cmd) {
-        case 4: ny = cy - 1; ant_list[num_ant].dir = 0; break; // N
-        case 5: nx = cx + 1; ant_list[num_ant].dir = 1; break; // E
-        case 6: ny = cy + 1; ant_list[num_ant].dir = 2; break; // S
-        case 7: nx = cx - 1; ant_list[num_ant].dir = 3; break; // W
-        default:
-            // invalid move command, ignore
-            nx = cx;
-            ny = cy;
-            break;
-        }
+        int x = ((int) data.bytes.byte0) - 0x80;
+        int y = ((int) data.bytes.byte1) - 0x80;
+        int nx = cx + x;
+        int ny = cy + y;
 
         // Clamp to 0..127
         if (nx < 0)   nx = 0;
@@ -646,7 +638,6 @@ int main(int argc, char *argv[]) {
 
     while (graphics_active() && frame < 50000) {
         frame++;
-
         // Run each ant's teenyAT CPU
         for (int i = 0; i < (int)ant_list.size(); i++) {
             num_ant = i;

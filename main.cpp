@@ -289,8 +289,12 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
         if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
-        int x = ((int) data.bytes.byte0) - 0x80;
-        int y = ((int) data.bytes.byte1) - 0x80;
+        int x = ((int) data.bytes.byte1) - 0x80;
+        int y = ((int) data.bytes.byte0) - 0x80;
+        if (x*x >1 || y*y >1){
+            x = 0; y=0; //legal move enforcement
+        }
+
         int nx = cx + x;
         int ny = cy + y;
 
@@ -303,6 +307,13 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         ant_list[num_ant].x = (short)nx;
         ant_list[num_ant].y = (short)ny;
         tnymap[nx][ny].ant_pres++;
+        short dir_m;
+        if (y<0 && x>=0) {dir_m = 0;}
+        else if (x>0 && y>=0){dir_m = 1;}
+        else if (y>0 && x<=0){dir_m = 2;}
+        else {dir_m = 3;}
+        
+        ant_list[num_ant].dir = dir_m;
 
         // SINGLE food collection check
         if (tnymap[nx][ny].food > 0) {
@@ -371,11 +382,20 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
             data.bytes.byte0;
         break;
 
-    case SET_SNIFF_DIR:
+    case SET_SNIFF_DIR:{
         // Let user code explicitly set dir (0..3)
-        ant_list[num_ant].dir = (short)(data.u & 3);
+        // auto convert from regular dirs
+        int snx = ((int)data.bytes.byte1) - 0x80;
+        int sny = ((int)data.bytes.byte0) - 0x80;
+        short dir_sn;
+        if (sny<0 && snx>=0) {dir_sn =0;}
+        if (snx>0 && sny>=0){dir_sn =1;}
+        if (sny>0 && snx<=0){dir_sn = 2;}
+        if (snx<0 && sny<=0) {dir_sn = 3;}
+        
+        ant_list[num_ant].dir = dir_sn;
         break;
-
+    }
     case CHECK_CARRYING:
         // New port: check if the ant is carrying food
         // Returns 1 if carrying food, 0 if not

@@ -125,12 +125,12 @@ static void draw_line_pix(int x0, int y0, int x1, int y1, TPixel col) {
 void init_graphics(void) {
     if (initialized) return;
 
-    printf("🐜 Initializing TeenyAnts Graphics System...\n");
+    printf("Initializing TeenyAnts Graphics System...\n");
 
     screen = tigrWindow(SCREEN_W, SCREEN_H,
                         "TeenyAnts Colony Simulation", TIGR_FIXED);
     if (!screen) {
-        printf("❌ Failed to create TeenyAnts window\n");
+        printf("Failed to create TeenyAnts window\n");
         return;
     }
 
@@ -158,7 +158,7 @@ void init_graphics(void) {
         int fy = rand() % WORLD_SIZE;
         if (world_grid[fx][fy] == 0) {
             world_grid[fx][fy] = 1;
-            printf("🍎 Initial food spawned at (%d,%d)\n", fx, fy);
+            printf("Initial food spawned at (%d,%d)\n", fx, fy);
         }
     }
 
@@ -173,7 +173,7 @@ void init_graphics(void) {
 
     initialized = 1;
 
-    printf("✅ Graphics ready: %dx%d window, %dx%d world\n",
+    printf("Graphics ready: %dx%d window, %dx%d world\n",
            SCREEN_W, SCREEN_H, WORLD_SIZE, WORLD_SIZE);
 }
 
@@ -183,7 +183,7 @@ void cleanup_graphics(void) {
         screen = NULL;
     }
     initialized = 0;
-    printf("🎮 TeenyAnts graphics cleaned up\n");
+    printf("TeenyAnts graphics cleaned up\n");
 }
 
 int graphics_active(void) {
@@ -202,7 +202,7 @@ void spawn_random_food(void) {
         if (world_grid[fx][fy] == 0) {
             world_grid[fx][fy] = 1;
             spawned++;
-            printf("🍎 Initial food spawned at (%d,%d)\n", fx, fy);
+            printf("Initial food spawned at (%d,%d)\n", fx, fy);
         }
     }
 }

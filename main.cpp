@@ -338,33 +338,19 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
             cout << "Ant " << num_ant << " found food and cleared pheromone area!" << endl;
         }
 
-        // Drop food in nest
+        // Drop food in nest - check simulation coordinates directly
         if (ant_list[num_ant].carrying_food) {
-            int gx = (nx * 50) / 128;
-            int gy = (ny * 50) / 128;
-            if (gx >= 0 && gx < 50 && gy >= 0 && gy < 50 &&
-                get_world_cell(gx, gy) == 2)
-            {
+            // Check if ant is in nest region (simulation coordinates)
+            if (nx >= 56 && nx <= 72 && ny >= 56 && ny <= 72) {
                 ant_list[num_ant].carrying_food = false;
                 ant_list[num_ant].state = 0;
                 
-                // RESET ANT COLOR based on program type
-                if (num_ant == 0) {
-                    // Simple ant - red
-                    ant_list[num_ant].r = 255;
-                    ant_list[num_ant].g = 0;
-                    ant_list[num_ant].b = 0;
-                } else if (num_ant == 1) {
-                    // Searcher ant - green  
-                    ant_list[num_ant].r = 0;
-                    ant_list[num_ant].g = 255;
-                    ant_list[num_ant].b = 0;
-                } else {
-                    // Carrier ant - blue
-                    ant_list[num_ant].r = 0;
-                    ant_list[num_ant].g = 0;
-                    ant_list[num_ant].b = 255;
-                }
+                // Reset ant color based on file index
+                unsigned char r, g, b;
+                color_for_file(ant_list[num_ant].file_index, r, g, b);
+                ant_list[num_ant].r = r;
+                ant_list[num_ant].g = g;
+                ant_list[num_ant].b = b;
                 
                 add_nest_food(1);
                 cout << "Ant " << num_ant << " delivered food to nest and reset color!" << endl;
@@ -540,7 +526,7 @@ static void maybe_spawn_food_dynamic() {
         int gy = rand() % 50;
         if (get_world_cell(gx, gy) == 0) {
             update_world_cell(gx, gy, 1);
-            cout << "🍎 New food spawned at (" << gx << "," << gy << ")\n";
+            cout << "New food spawned at (" << gx << "," << gy << ")\n";
             break;
         }
     }

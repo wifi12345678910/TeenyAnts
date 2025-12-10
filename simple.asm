@@ -1,87 +1,98 @@
 ; filepath: c:\Users\thunt\CS520\TeenyAT\TeenyAnts\simple_ant.asm
 ; Very simple ant that just moves in a circle and drops pheromones
 
-.const DROP_PHER 0x9005
-.const MOVE 0x9006
+.const MOVE_CMD  0x9006
+.const CHECK_CARRYING  0x9010
+.const TRY_PICKUP_FOOD 0x9011
+.const RAND      0x8010
 
-; Movement commands
-.const MOVE_NORTH 0x807F
-.const MOVE_EAST 0x8180  
-.const MOVE_SOUTH 0x8081
-.const MOVE_WEST 0x7F80
+; MOVE_CMD commands: 4=N, 5=E, 6=S, 7=W
 
-; Initialize
-SET rA, 0           ; Direction counter (0,1,2,3 = N,E,S,W)
-SET rB, 0           ; Step counter
-SET rC, 25          ; Pheromone strength
+!main
+    set rA, 0          ; direction (0=E, 1=S, 2=W, 3=N)
+    set rB, 0          ; step counter
+    jmp !circle_loop
 
-!main_loop
-    ; Drop pheromone
-    STR [DROP_PHER], rC
-    
-    ; Move based on current direction
-    CMP rA, 0
-    JE !go_north
-    CMP rA, 1
-    JE !go_east  
-    CMP rA, 2
-    JE !go_south
-    JMP !go_west        ; Default: west
+!circle_loop
+    ; Check if we picked up food - if so, return to nest
+    lod rC, [CHECK_CARRYING]
+    cmp rC, rZ
+    jne !return_to_nest
+
+    ; NO pheromone dropping - just move in circle
+
+    ; Move in current direction around nest perimeter
+    cmp rA, 0
+    je  !go_east
+    cmp rA, 1
+    je  !go_south
+    cmp rA, 2
+    je  !go_west
+    jmp !go_north
+
+!go_east
+    set rC, 5          ; step east
+    jmp !do_move
+
+!go_south
+    set rC, 6          ; step south
+    jmp !do_move
+
+!go_west
+    set rC, 7          ; step west
+    jmp !do_move
 
 !go_north
-    SET rD, MOVE_NORTH
-    JMP !do_move
-!go_east
-    SET rD, MOVE_EAST
-    JMP !do_move
-!go_south  
-    SET rD, MOVE_SOUTH
-    JMP !do_move
-!go_west
-    SET rD, MOVE_WEST
+    set rC, 4          ; step north
 
 !do_move
-    ; Execute movement
-    STR [MOVE], rD
-    
-    ; Increment step counter
-    ADD rB, 1
-    
-    ; Change direction every 5 steps
-    SET rE, rB
-    SET rD, 5           ; Reuse rD for modulo calculation
-    ; Manual modulo: rE = rB % 5
-!mod_loop
-    CMP rE, rD
-    JL !mod_done
-    SUB rE, rD
-    JMP !mod_loop
-!mod_done
-    
-    ; If rE == 0, change direction
-    CMP rE, rZ
-    JNE !wait
-    
-    ; Change direction: rA = (rA + 1) % 4
-    ADD rA, 1
-    SET rE, rA
-    SET rD, 4           ; Reuse rD for modulo calculation
-!mod_loop2
-    CMP rE, rD  
-    JL !mod_done2
-    SUB rE, rD
-    JMP !mod_loop2
-!mod_done2
-    SET rA, rE
+    str [MOVE_CMD], rC
 
-!wait
-    ; Simple delay using rD
-    SET rD, 500
+    ; Try to pick up food if we accidentally step on it
+    lod rE, [TRY_PICKUP_FOOD]
+
+    ; Turn every 12 steps to make a large circle around nest perimeter
+    add rB, 1
+    set rC, rB
+    mod rC, 12         ; turn every 12 steps for wide circle AROUND nest
+    cmp rC, rZ
+    jne !delay
+
+    ; Turn clockwise: E→S→W→N→E
+    add rA, 1
+    mod rA, 4
+    jmp !delay
+
+!return_to_nest
+    ; Simple nest return when carrying food
+    cmp rB, rZ
+    jne !nest_move
+    
+    ; Random direction toward center
+    lod rD, [RAND]
+    mod rD, 4
+    add rD, 4
+    set rA, rD
+    set rB, 4
+    jmp !nest_move
+
+!nest_move
+    str [MOVE_CMD], rA
+    sub rB, 1
+
+    ; Faster return speed
+    set rC, 120
+    jmp !wait_loop
+
+!delay
+    ; Steady circling speed
+    set rC, 250        ; Slightly slower for wider circle
+
 !wait_loop
-    CMP rD, rZ
-    JE !main_loop
-    SUB rD, 1
-    JMP !wait_loop
+    cmp rC, rZ
+    je  !circle_loop
+    sub rC, 1
+    jmp !wait_loop
 
 !end
-    JMP !end
+    jmp !end

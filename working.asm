@@ -28,7 +28,7 @@
 
     ; Drop exploration pheromone
     set rE, 30
-    str [DROP_PHER], rE
+;;    str [DROP_PHER], rE
 
     ; Check if need new direction
     cmp rB, rZ

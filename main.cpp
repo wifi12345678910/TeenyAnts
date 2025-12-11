@@ -252,7 +252,6 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
             out.bytes.byte0 = (unsigned char)best_dist;
             out.bytes.byte1 = (unsigned char)best_strength;
         }
-
         data->bytes.byte0 = out.bytes.byte0;
         data->bytes.byte1 = out.bytes.byte1;
     }
@@ -266,10 +265,10 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
         data->bytes.byte1 = 0;
         break;
     case CHECK_NEST:
-        if (tnymap[ant_list[num_ant].x][ant_list[num_ant].y].nest >0){
-            data->u = 0x0000;
-        } else {
+        if (tnymap[ant_list[num_ant].x][ant_list[num_ant].y].nest >1){
             data->u = 0xFFFF;
+        } else {
+            data->u = 0x0000;
         }
         break;
     default:
@@ -297,18 +296,19 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
         if (tnymap[cx][cy].ant_pres > 0){tnymap[cx][cy].ant_pres--;}
 
-        int x = ((int) data.bytes.byte1) - 0x80;
-        int y = ((int) data.bytes.byte0) - 0x80;
+        int x = (data.bytes.byte1) - 0x80;
+        int y = (data.bytes.byte0) - 0x80;
         
 
         int nx = cx + x;
         int ny = cy + y;
+        //cout << cx << "," << cy << ",!!" << x << "," << y << ",!!" << nx << "," << ny << ",\n";
 
         // Clamp to 0..127
-        if (nx < 0)   nx = 0;
-        if (nx > 127) nx = 127;
-        if (ny < 0)   ny = 0;
-        if (ny > 127) ny = 127;
+        if (nx < 0)   nx = nx % 127+127;
+        if (nx > 127) nx = nx % 127;
+        if (ny < 0)   ny = ny % 127+127;
+        if (ny > 127) ny = ny % 127;
 
         ant_list[num_ant].x = (short)nx;
         ant_list[num_ant].y = (short)ny;
@@ -676,7 +676,7 @@ int main(int argc, char *argv[]) {
         
         // MUCH faster pheromone decay - trails disappear quickly!
         // At 30ms per frame: 300ms ÷ 30ms = ~10 frames
-        if (++decay_timer >= 10) {
+        if (++decay_timer >= 5) {
             decay_pheromones();
             decay_timer = 0;
         }

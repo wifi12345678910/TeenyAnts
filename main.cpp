@@ -35,6 +35,7 @@ const tny_uword SET_RG           = 0x9008; // reserved
 const tny_uword SET_BA           = 0x9009; // reserved / optional color tweak
 const tny_uword TRY_PICKUP_FOOD  = 0x9011; // Try to pickup food at current location
 const tny_uword CHECK_NEST       = 0x900A;
+const tny_uword CAN_CARRY        =0x900B;
 
 // -----------------------------------------------------------------------------
 // World + ant state
@@ -53,6 +54,7 @@ typedef struct {
     short    y;
     short    dir;        // facing direction (0..3) for SNIFF_PHER_DIR
     unsigned char r, g, b, a;
+    bool     can_carry;
     bool     carrying_food;
     int      state;
     int      file_index; // which binary this ant came from
@@ -322,7 +324,7 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         ant_list[num_ant].dir = dir_m;
 
         // SINGLE food collection check
-        if (tnymap[nx][ny].food > 0) {
+        if (tnymap[nx][ny].food > 0 && ant_list[num_ant].can_carry) {
             tnymap[nx][ny].food--;
             ant_list[num_ant].carrying_food = true;
             ant_list[num_ant].state = 2;
@@ -370,6 +372,7 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
     case DROP_PHER:
         // Pheromone only exists in sim grid; graphics mirror it
+        if (!ant_list[num_ant].can_carry)
         tnymap[ant_list[num_ant].x][ant_list[num_ant].y].pher_level =
             data.bytes.byte0;
         break;
@@ -415,7 +418,9 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
             ant_list[num_ant].r = 255; ant_list[num_ant].g = 215; ant_list[num_ant].b = 0;
         }
         break;
-
+    case CAN_CARRY:
+        ant_list[num_ant].can_carry = true;
+        break;
     default:
         break;
     }
@@ -623,7 +628,7 @@ int main(int argc, char *argv[]) {
                 ant_list[ant_num].carrying_food = false;
                 ant_list[ant_num].state         = 0;
                 ant_list[ant_num].file_index    = file_index;
-
+                ant_list[ant_num].can_carry = false;
                 ant_list[ant_num].r = base_r;
                 ant_list[ant_num].g = base_g;
                 ant_list[ant_num].b = base_b;
@@ -655,7 +660,7 @@ int main(int argc, char *argv[]) {
             num_ant = i;
             if (ant_list[i].t) {
                 // Plenty of cycles per frame for smooth movement
-                for (int cycle = 0; cycle < 500; cycle++)
+                for (int cycle = 0; cycle < 100; cycle++)
                     tny_clock(ant_list[i].t);
             }
         }

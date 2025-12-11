@@ -7,6 +7,7 @@
 .const SNIFF_PHER_DIR 0x9003
 .const CHECK_CARRYING 0x9010
 .const CHECK_NEST 0x900A
+.const CAN_CARRY 0x900B
 
 ; Movement encoding: 0x80 + offset where 0x80 = no movement
 ; e.g 0x7F = -1, 0x80 = 0, 0x81 = +1
@@ -19,7 +20,7 @@
 .const MOVE_SW 0x7F81        ; dx=-1, dy=+1
 .const MOVE_NW 0x7F7F 
     
-    set rA, 0x8080 ; track distance from starting point
+    STR [CAN_CARRY], rZ ; track distance from starting point
     LOD rD, [0x8010]; randomize search square starting direction
 
 !findnest
@@ -66,13 +67,11 @@
     JMP !findnest
 
 !main
+    LOD rE, [CHECK_CARRYING]
+    CMP rE, rZ
+    jne !findnest
+    set rA, 0x8080
     JMP !scouting
-
-
-
-
-
-
 
 !scouting
     set rC, 32
@@ -121,7 +120,10 @@
     JNE !westret
 !westfail
     LUP rC, !corner
-    inc rD
+    LOD rE, [CHECK_CARRYING]
+    CMP rE, rZ
+    JNE !found_food
+    LOD rD, [0x8010]
     JMP !scouting
 
 !northret
@@ -222,6 +224,52 @@
     RET
 
 !found_food
-    STR [MOVE], rA
-    set rA, 0x8080
+    ;;STR [MOVE], rA
+    set rC, rA
+    SHL rC, 8
+    SHR rC, 8
+    CMP rC, 0x0080
+    jl !yless
+    jg !ygreat
+    jmp !cmpx
+!ygreat
+    SUB rC, 0x0080
+!yglp
+    set rB, 0x8081
+    cal !move
+    DLY 3
+    lup rC, !yglp
+    jmp !cmpx
+!yless
+    set rD, 0x0080
+    sub rD, rC
+!yllp
+    set rB, 0x807F
+    cal !move
+    DLY 3
+    lup rD, !yllp
+!cmpx
+    set rC, rA
+    SHR rC, 8
+    CMP rC, 0x0080
+    jl !xless
+    jg !xgreat
+    jmp !reset
+!xgreat
+    SUB rC, 0x0080
+!xglp
+    set rB, 0x8180
+    CAL !move
+    DLY 3
+    lup rC, !xglp
+    jmp !reset
+!xless
+    set rD, 0x0080
+    sub rD, rC
+!xllp
+    set rB, 0x7F80
+    cal !move
+    DLY 3
+    lup rD, !xllp
+!reset
     JMP !main

@@ -307,10 +307,10 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         //cout << cx << "," << cy << ",!!" << x << "," << y << ",!!" << nx << "," << ny << ",\n";
 
         // Clamp to 0..127
-        if (nx < 0)   nx = nx % 127+127;
-        if (nx > 127) nx = nx % 127;
-        if (ny < 0)   ny = ny % 127+127;
-        if (ny > 127) ny = ny % 127;
+        if (nx < 0)   nx = nx % 128+128;
+        if (nx > 127) nx = nx % 128;
+        if (ny < 0)   ny = ny % 128+128;
+        if (ny > 127) ny = ny % 128;
 
         ant_list[num_ant].x = (short)nx;
         ant_list[num_ant].y = (short)ny;

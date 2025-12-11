@@ -21,6 +21,7 @@ teenyants.exe simple.bin 1 retriever.bin 1 working.bin 1
 - **Retriever Ant** - Follows pheromone trails to collect food and return to nest  
 - **Working Ant** - Scouts the world to find food sources and marks them with strong pheromone beacons
 - **Big Square Ant** - Creates geometric pheromone patterns while moving
+- **Simple Ant** - Moves in a circle and returns food if found
 
 ### Assembly Programming
 
